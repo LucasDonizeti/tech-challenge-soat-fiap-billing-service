@@ -72,6 +72,12 @@
 			<version>3.7.0</version>
 		</dependency>
 
+		<!-- Jackson Java 8 date/time support for LocalDateTime serialization/deserialization -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>

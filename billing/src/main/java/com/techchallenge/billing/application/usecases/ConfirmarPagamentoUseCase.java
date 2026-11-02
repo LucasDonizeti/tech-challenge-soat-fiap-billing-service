@@ -13,13 +13,17 @@ import com.techchallenge.billing.domain.models.Pagamento;
 import com.techchallenge.billing.domain.models.valueobjects.StatusOrcamento;
 import com.techchallenge.billing.domain.models.valueobjects.StatusOrcamentoChange;
 import com.techchallenge.billing.domain.models.valueobjects.StatusPagamento;
+import com.techchallenge.billing.domain.services.SagaPaymentService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import jakarta.validation.Validator;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConfirmarPagamentoUseCase implements ConfirmarPagamentoInput {
@@ -28,9 +32,11 @@ public class ConfirmarPagamentoUseCase implements ConfirmarPagamentoInput {
     private final OrcamentoGateway orcamentoGateway;
     private final MercadoPagoGateway mercadoPagoGateway;
     private final BillingEventPublisher eventPublisher;
+    private final SagaPaymentService sagaPaymentService;
     private final Validator validator;
 
     @Override
+    @Transactional
     public void execute(ConfirmarPagamentoCommand command) {
         UseCaseValidation.validate(command, validator);
         String mercadoPagoPaymentId = command.mercadoPagoPaymentId();
@@ -44,7 +50,6 @@ public class ConfirmarPagamentoUseCase implements ConfirmarPagamentoInput {
         }
 
         StatusPagamento newStatus = mapStatus(result.status());
-        StatusPagamento previousStatus = localPayment.getStatus();
         LocalDateTime now = LocalDateTime.now();
         localPayment.setStatus(newStatus);
         localPayment.setValorPago(result.amount());
@@ -71,9 +76,23 @@ public class ConfirmarPagamentoUseCase implements ConfirmarPagamentoInput {
             orcamentoGateway.save(quote);
         }
 
-        if (previousStatus == newStatus) {
-            return;
-        }
+        // SAGA PATTERN: Confirmar resultado da saga
+        String statusFinal = switch (newStatus) {
+            case APROVADO -> "APROVADO";
+            case RECUSADO, EXPIRADO, CANCELADO -> newStatus.name();
+            default -> "DESCONHECIDO";
+        };
+
+        sagaPaymentService.confirmSagaPayment(
+                savedPayment.getId(),
+                statusFinal,
+                result.amount(),
+                result.dateApproved() == null ? now : result.dateApproved(),
+                result.failureMessage() == null ? result.status() : result.failureMessage()
+        );
+
+        // Publish terminal payment events on every webhook attempt so a retry
+        // can recover when persistence succeeded but event delivery previously failed.
         if (newStatus == StatusPagamento.APROVADO) {
             eventPublisher.publishPagamentoAprovado(new PagamentoAprovadoEvent(
                     savedPayment.getId(),
@@ -94,6 +113,9 @@ public class ConfirmarPagamentoUseCase implements ConfirmarPagamentoInput {
                     result.status()
             ));
         }
+
+        log.info("Pagamento confirmado e saga atualizada: paymentId={}, status={}", 
+                savedPayment.getId(), statusFinal);
     }
 
     private StatusPagamento mapStatus(String mercadoPagoStatus) {

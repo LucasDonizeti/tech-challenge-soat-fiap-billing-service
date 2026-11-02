@@ -48,6 +48,21 @@ class SecurityConfigTest {
     }
 
     @Test
+    void convertsServiceRoleClaimToSpringAuthority() {
+        JwtAuthenticationConverter converter = securityConfig.jwtAuthenticationConverter();
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "HS256")
+                .claim("role", "SERVICE")
+                .build();
+
+        var authentication = converter.convert(jwt);
+
+        assertNotNull(authentication);
+        assertTrue(authentication.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_SERVICE".equals(authority.getAuthority())));
+    }
+
+    @Test
     void missingRoleClaimCreatesNoAuthorities() {
         JwtAuthenticationConverter converter = securityConfig.jwtAuthenticationConverter();
         Jwt jwt = Jwt.withTokenValue("token")

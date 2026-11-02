@@ -7,6 +7,10 @@ import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
 
+/**
+ * Command para criar um pagamento PIX no Mercado Pago via Orders API.
+ * Este comando encapsula todos os dados necessários para criar uma order com payment PIX.
+ */
 public record CreatePixPaymentCommand(
         @NotNull @Positive BigDecimal amount,
         @NotBlank String description,

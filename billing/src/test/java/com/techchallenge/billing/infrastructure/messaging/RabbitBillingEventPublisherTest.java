@@ -2,6 +2,7 @@ package com.techchallenge.billing.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.techchallenge.billing.domain.events.PagamentoAprovadoEvent;
+import com.techchallenge.billing.domain.events.PagamentoRecusadoEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -37,6 +38,30 @@ class RabbitBillingEventPublisherTest {
         verify(rabbitTemplate).convertAndSend(
                 eq("billing.events"),
                 eq("pagamento.aprovado"),
+                eq(toJson(event))
+        );
+    }
+
+    @Test
+    void publishesRejectedPaymentEventToConfiguredExchangeAndRoute() {
+        var rabbitTemplate = mock(RabbitTemplate.class);
+        var publisher = new RabbitBillingEventPublisher(rabbitTemplate, new ObjectMapper().findAndRegisterModules());
+        ReflectionTestUtils.setField(publisher, "exchange", "billing.events");
+        ReflectionTestUtils.setField(publisher, "pagamentoRecusadoRoutingKey", "pagamento.recusado");
+        var event = new PagamentoRecusadoEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "Pagamento recusado",
+                "rejected"
+        );
+
+        publisher.publishPagamentoRecusado(event);
+
+        verify(rabbitTemplate).convertAndSend(
+                eq("billing.events"),
+                eq("pagamento.recusado"),
                 eq(toJson(event))
         );
     }

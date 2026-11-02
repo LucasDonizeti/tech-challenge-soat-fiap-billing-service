@@ -26,7 +26,7 @@ public class MongoIndexInitializer {
 
             mappingContext.getPersistentEntities().forEach(entity ->
                 indexResolver.resolveIndexFor(entity.getType()).forEach(index ->
-                    mongoTemplate.indexOps(entity.getType()).ensureIndex(index)
+                    mongoTemplate.indexOps(entity.getType()).createIndex(index)
                 )
             );
             log.info("MongoDB indexes initialized successfully");

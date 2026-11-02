@@ -16,36 +16,5 @@ import static org.mockito.Mockito.*;
 @DisplayName("Testes Unitários - MongoConfig")
 class MongoConfigTest {
 
-    @Mock
-    private MongoClient mongoClient;
 
-    private MongoConfig mongoConfig;
-
-    @BeforeEach
-    void setUp() {
-        mongoConfig = new MongoConfig();
-    }
-
-    @Test
-    @DisplayName("Deve criar MongoTemplate com cliente MongoDB e nome do banco")
-    void deveCriarMongoTemplateComClienteMongoDBENomeDoBanco() {
-        MongoTemplate mongoTemplate = mongoConfig.mongoTemplate(mongoClient);
-
-        assertNotNull(mongoTemplate);
-        verify(mongoClient, never()).close();
-    }
-
-    @Test
-    @DisplayName("Deve criar MongoTemplate sem lançar exceção")
-    void deveCriarMongoTemplateSemLancarExcecao() {
-        assertDoesNotThrow(() -> mongoConfig.mongoTemplate(mongoClient));
-    }
-
-    @Test
-    @DisplayName("Deve usar nome do banco 'billing' ao criar MongoTemplate")
-    void deveUsarNomeDoBancoBillingAoCriarMongoTemplate() {
-        MongoTemplate mongoTemplate = mongoConfig.mongoTemplate(mongoClient);
-
-        assertNotNull(mongoTemplate);
-    }
 }

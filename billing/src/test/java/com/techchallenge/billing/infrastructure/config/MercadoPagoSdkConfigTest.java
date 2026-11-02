@@ -1,6 +1,7 @@
 package com.techchallenge.billing.infrastructure.config;
 
 import com.mercadopago.client.payment.PaymentClient;
+import com.mercadopago.client.order.OrderClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -54,4 +55,5 @@ class MercadoPagoSdkConfigTest {
     void deveCriarBeanPaymentClientSemLancarExcecao() {
         assertDoesNotThrow(() -> config.mercadoPagoPaymentClient("test-token"));
     }
+
 }

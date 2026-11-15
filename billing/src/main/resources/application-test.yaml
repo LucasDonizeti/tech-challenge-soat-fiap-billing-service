@@ -1,0 +1,10 @@
+# Profile TEST - Unit and Integration Tests
+# Used automatically in test context
+
+messaging:
+  type: local
+
+logging:
+  level:
+    com.techchallenge.billing: DEBUG
+    io.awspring.cloud: WARN

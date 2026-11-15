@@ -51,6 +51,16 @@ class SwaggerConfigTest {
     }
 
     @Test
+    @DisplayName("Deve usar o context path do serviço como URL do servidor")
+    void deveUsarContextPathComoUrlDoServidor() {
+        ReflectionTestUtils.setField(swaggerConfig, "serverContextPath", "/v1/billing-service/");
+
+        OpenAPI openAPI = swaggerConfig.customOpenAPI();
+
+        assertEquals("/v1/billing-service", openAPI.getServers().get(0).getUrl());
+    }
+
+    @Test
     @DisplayName("Deve configurar informações da API")
     void deveConfigurarInformacoesDaAPI() {
         OpenAPI openAPI = swaggerConfig.customOpenAPI();

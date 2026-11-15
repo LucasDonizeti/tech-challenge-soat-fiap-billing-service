@@ -26,10 +26,13 @@ public class SwaggerConfig {
     @Value("${spring.application.version:0.0.1-SNAPSHOT}")
     private String applicationVersion;
 
+    @Value("${server.servlet.context-path:}")
+    private String serverContextPath = "";
+
     @Bean
     public OpenAPI customOpenAPI() {
         return new OpenAPI()
-                .servers(List.of(new Server().url("/").description("Default Server URL")))
+                .servers(List.of(new Server().url(serverUrl()).description("Default Server URL")))
                 .info(new Info()
                         .title(applicationName + " API")
                         .version(applicationVersion)
@@ -53,5 +56,20 @@ public class SwaggerConfig {
                         new Tag().name("Pagamentos").description("Consulta de pagamentos PIX"),
                         new Tag().name("Webhooks").description("Notificações do Mercado Pago")
                 ));
+    }
+
+    private String serverUrl() {
+        if (serverContextPath == null || serverContextPath.isBlank()) {
+            return "/";
+        }
+
+        String path = serverContextPath.trim();
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
     }
 }

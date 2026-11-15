@@ -36,6 +36,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/v1/billings/webhooks/mercadopago").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/billings/orcamentos")
                         .hasAnyRole("ADMIN", "SERVICE")

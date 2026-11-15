@@ -13,7 +13,7 @@ import org.springframework.test.context.TestPropertySource;
  * Testes da aplicação Billing
  * 
  * NOTA: O teste de contexto é desabilitado pois carrega toda a aplicação
- * com dependências de MongoDB que podem não estar disponíveis em CI/CD.
+ * com dependências de infraestrutura que podem não estar disponíveis em CI/CD.
  * 
  * Use testes específicos por componente em vez deste teste de integração.
  */

@@ -37,8 +37,7 @@ helm package .\k8s
 no padrao
 helm install billing-service .\billing-service-0.1.0.tgz
 
-# Defina MONGODB_ATLAS_URI_FILE apontando para um arquivo protegido com a URI mongodb+srv do Atlas.
-helm upgrade --install billing-service .\k8s -f .\k8s\values-prod.yaml --set image.tag=$IMAGE_TAG --set-file secret.MONGODB_URI=$MONGODB_ATLAS_URI_FILE --set secret.JWT_SECRET=$JWT_SECRET --set secret.SECURITY_USER_NAME=$SECURITY_USER_NAME --set secret.SECURITY_USER_PASSWORD=$SECURITY_USER_PASSWORD
+helm upgrade --install billing-service .\k8s -f .\k8s\values-prod.yaml --set image.tag=$IMAGE_TAG --set secret.JWT_SECRET=$JWT_SECRET --set secret.SECURITY_USER_NAME=$SECURITY_USER_NAME --set secret.SECURITY_USER_PASSWORD=$SECURITY_USER_PASSWORD
 
 
 obs: 

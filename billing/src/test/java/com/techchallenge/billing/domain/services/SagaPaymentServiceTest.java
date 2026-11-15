@@ -163,7 +163,6 @@ class SagaPaymentServiceTest {
         SagaContext savedContext = contextCaptor.getValue();
         assertEquals("APROVADA", savedContext.getStatus());
         
-        verify(sagaEventPublisher, never()).publishSagaPaymentConfirmed(any());
     }
 
     @Test
@@ -197,13 +196,11 @@ class SagaPaymentServiceTest {
         assertEquals("APROVADA", first.getStatus());
         assertEquals("APROVADA", duplicate.getStatus());
         verify(sagaContextRepository, times(2)).save(any(SagaContext.class));
-        verify(sagaEventPublisher, never()).publishSagaPaymentConfirmed(any());
 
         service.confirmSagaPayment(
                 pagamentoId, "APROVADO", BigDecimal.TEN, LocalDateTime.now(), null);
 
         verify(sagaContextRepository, times(2)).save(any(SagaContext.class));
-        verify(sagaEventPublisher, never()).publishSagaPaymentConfirmed(any());
     }
 
     @Test
@@ -225,7 +222,6 @@ class SagaPaymentServiceTest {
         service.confirmSagaPayment(pagamentoId, "CANCELADO", BigDecimal.ZERO, LocalDateTime.now(), "cancelado");
 
         assertEquals("CANCELADA", saga.getStatus());
-        verify(sagaEventPublisher, never()).publishSagaPaymentConfirmed(any());
     }
 
     @Test

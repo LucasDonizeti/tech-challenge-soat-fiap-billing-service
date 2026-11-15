@@ -10,6 +10,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
+  API_GATEWAY_NAME: oficina-api-gateway
   ECR_REPOSITORY: billing-service
   EKS_CLUSTER_NAME: oficina-cluster
   HELM_RELEASE_NAME: billing-service
@@ -135,20 +136,69 @@ jobs:
             --namespace=${{ env.K8S_NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Obter ID da conta AWS
+        id: aws-account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Obter URL base pública do API Gateway
+        id: mercado-pago-webhook
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          API_GATEWAY_NAME: ${{ env.API_GATEWAY_NAME }}
+        run: |
+          API_GATEWAY_ENDPOINT=$(aws apigatewayv2 get-apis \
+            --region "$AWS_REGION" \
+            --query "Items[?Name=='$API_GATEWAY_NAME'].ApiEndpoint | [0]" \
+            --output text)
+
+          if [[ -z "$API_GATEWAY_ENDPOINT" || "$API_GATEWAY_ENDPOINT" == "None" ]]; then
+            echo "::error::API Gateway '$API_GATEWAY_NAME' was not found in region '$AWS_REGION'. Provision k8s-infra before deploying Billing."
+            exit 1
+          fi
+          if [[ "$API_GATEWAY_ENDPOINT" != https://* ]]; then
+            echo "::error::API Gateway returned an invalid public endpoint."
+            exit 1
+          fi
+
+          API_GATEWAY_ENDPOINT="${API_GATEWAY_ENDPOINT%/}"
+          echo "base_url=$API_GATEWAY_ENDPOINT" >> "$GITHUB_OUTPUT"
+          echo "Retrieved the public API Gateway base URL for Mercado Pago webhook configuration."
+
       - name: Helm upgrade --install
         env:
           ECR_REGISTRY: ${{ needs.push-image-ecr.outputs.ecr_registry }}
           IMAGE_TAG: ${{ needs.push-image-ecr.outputs.image_tag }}
-          MONGODB_ATLAS_URI: ${{ secrets.MONGODB_ATLAS_URI }}
+          AWS_ACCOUNT_ID: ${{ steps.aws-account.outputs.account_id }}
+          MERCADO_PAGO_ACCESS_TOKEN: ${{ secrets.MERCADO_PAGO_ACCESS_TOKEN }}
+          MERCADO_PAGO_WEBHOOK_SECRET: ${{ secrets.MERCADO_PAGO_WEBHOOK_SECRET }}
+          MERCADO_PAGO_BASE_URL: ${{ steps.mercado-pago-webhook.outputs.base_url }}
         run: |
-          if [ -z "$MONGODB_ATLAS_URI" ]; then
-            echo "::error::The MONGODB_ATLAS_URI GitHub Actions secret must be configured."
+          if [ -z "$MERCADO_PAGO_ACCESS_TOKEN" ]; then
+            echo "::error::The MERCADO_PAGO_ACCESS_TOKEN GitHub Actions secret must be configured."
+            exit 1
+          fi
+          if [ -z "$MERCADO_PAGO_WEBHOOK_SECRET" ]; then
+            echo "::error::The MERCADO_PAGO_WEBHOOK_SECRET GitHub Actions secret must be configured."
+            exit 1
+          fi
+          if [[ "$MERCADO_PAGO_BASE_URL" != https://* ]]; then
+            echo "::error::Could not derive a public HTTPS MERCADO_PAGO_BASE_URL from API Gateway."
+            exit 1
+          fi
+          WEBHOOK_HOST="${MERCADO_PAGO_BASE_URL#https://}"
+          WEBHOOK_HOST="${WEBHOOK_HOST%%/*}"
+          if [[ "$WEBHOOK_HOST" == localhost* || "$WEBHOOK_HOST" == 127.0.0.1* || "$WEBHOOK_HOST" == 0.0.0.0* ]]; then
+            echo "::error::The MERCADO_PAGO_BASE_URL must not point to localhost."
             exit 1
           fi
 
-          MONGODB_URI_FILE=$(mktemp)
-          trap 'rm -f "$MONGODB_URI_FILE"' EXIT
-          printf '%s' "$MONGODB_ATLAS_URI" > "$MONGODB_URI_FILE"
+          MERCADO_PAGO_ACCESS_TOKEN_FILE=$(mktemp)
+          MERCADO_PAGO_WEBHOOK_SECRET_FILE=$(mktemp)
+          trap 'rm -f "$MERCADO_PAGO_ACCESS_TOKEN_FILE" "$MERCADO_PAGO_WEBHOOK_SECRET_FILE"' EXIT
+          printf '%s' "$MERCADO_PAGO_ACCESS_TOKEN" > "$MERCADO_PAGO_ACCESS_TOKEN_FILE"
+          printf '%s' "$MERCADO_PAGO_WEBHOOK_SECRET" > "$MERCADO_PAGO_WEBHOOK_SECRET_FILE"
 
           helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./${{ env.HELM_CHART_PATH }} \
             --namespace ${{ env.K8S_NAMESPACE }} \
@@ -156,11 +206,18 @@ jobs:
             -f ./${{ env.HELM_CHART_PATH }}/values-prod.yaml \
             --set image.repository=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }} \
             --set image.tag=$IMAGE_TAG \
-            --set-file secret.MONGODB_URI="$MONGODB_URI_FILE" \
             --set secret.JWT_SECRET="${{ secrets.JWT_SECRET }}" \
             --set secret.SECURITY_USER_NAME="${{ secrets.SECURITY_USER_NAME }}" \
             --set secret.SECURITY_USER_PASSWORD="${{ secrets.SECURITY_USER_PASSWORD }}" \
             --set secret.NEW_RELIC_LICENSE_KEY="${{ secrets.NEW_RELIC_LICENSE_KEY }}" \
+            --set-file secret.MERCADO_PAGO_ACCESS_TOKEN="$MERCADO_PAGO_ACCESS_TOKEN_FILE" \
+            --set-file secret.MERCADO_PAGO_WEBHOOK_SECRET="$MERCADO_PAGO_WEBHOOK_SECRET_FILE" \
+            --set-string configmap.MERCADO_PAGO_BASE_URL="$MERCADO_PAGO_BASE_URL" \
+            --set-string configmap.AWS_SNS_TOPIC_COBRANCA_PIX="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-cobranca-pix-gerada" \
+            --set-string configmap.AWS_SNS_TOPIC_PAGAMENTO_APROVADO="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-pagamento-aprovado" \
+            --set-string configmap.AWS_SNS_TOPIC_PAGAMENTO_RECUSADO="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-pagamento-recusado" \
+            --set-string configmap.AWS_SNS_TOPIC_SAGA_INITIATED="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-saga-initiated" \
+            --set-string configmap.AWS_SNS_TOPIC_SAGA_EXPIRED="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-saga-expired" \
             --rollback-on-failure \
             --timeout 10m \
             --wait

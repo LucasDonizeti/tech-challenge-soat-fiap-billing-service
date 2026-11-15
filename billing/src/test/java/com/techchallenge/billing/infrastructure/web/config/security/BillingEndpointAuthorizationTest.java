@@ -7,6 +7,7 @@ import com.techchallenge.billing.application.gateway.ports.input.ListarOrcamento
 import com.techchallenge.billing.application.gateway.ports.input.ListarPagamentosInput;
 import com.techchallenge.billing.application.gateway.ports.input.ProcessarWebhookInput;
 import com.techchallenge.billing.infrastructure.web.security.MercadoPagoWebhookSignatureValidator;
+import com.techchallenge.billing.infrastructure.config.SpringDataWebConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -29,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 @WebMvcTest
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, SpringDataWebConfig.class})
 class BillingEndpointAuthorizationTest {
 
     @Autowired

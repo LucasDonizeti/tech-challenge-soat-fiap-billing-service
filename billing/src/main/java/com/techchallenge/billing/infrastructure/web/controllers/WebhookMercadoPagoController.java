@@ -85,32 +85,32 @@ public class WebhookMercadoPagoController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "order_id divergente");
         }
         
-        // Validar assinatura do webhook (CONFORME SDK OFICIAL DO MERCADO PAGO)
-        if (signature != null && requestId != null && signedDataId != null) {
-            try {
-                logger.info("Validando assinatura do webhook...");
-                boolean isValid = signatureValidator.isValid(
-                    notification,
-                    signedDataId,
-                    signature,
-                    requestId
-                );
-                
-                if (!isValid) {
-                    logger.error("❌ Webhook signature inválida");
-                    throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook signature inválida");
-                }
-                
-                logger.info("✅ Assinatura do webhook validada com sucesso");
-            } catch (ResponseStatusException e) {
-                throw e;
-            } catch (Exception e) {
-                logger.error("❌ Erro ao validar assinatura do webhook: {}", e.getMessage());
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Erro na validação de assinatura");
+        if (signature == null || signature.isBlank()
+                || requestId == null || requestId.isBlank()
+                || signedDataId == null || signedDataId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Dados de assinatura do webhook ausentes");
+        }
+
+        try {
+            logger.info("Validando assinatura do webhook...");
+            boolean isValid = signatureValidator.isValid(
+                notification,
+                signedDataId,
+                signature,
+                requestId
+            );
+
+            if (!isValid) {
+                logger.error("Assinatura do webhook inválida");
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook signature inválida");
             }
-        } else {
-            logger.warn("⚠️ Headers ou query params de assinatura ausentes. Validação não realizada.");
-            logger.warn("  x-signature: {}, x-request-id: {}, data.id: {}", signature, requestId, signedDataId);
+
+            logger.info("Assinatura do webhook validada com sucesso");
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.error("Erro ao validar assinatura do webhook: {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Erro na validação de assinatura");
         }
 
         LocalDateTime receivedAt = LocalDateTime.now();

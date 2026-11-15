@@ -1,174 +1,295 @@
 package com.techchallenge.billing.infrastructure.persistence.repositories.impl;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.techchallenge.billing.domain.models.Orcamento;
 import com.techchallenge.billing.domain.models.valueobjects.StatusOrcamento;
-import com.techchallenge.billing.infrastructure.persistence.mappers.OrcamentoMongoMapper;
-import com.techchallenge.billing.infrastructure.persistence.repositories.OrcamentoMongoRepository;
+import com.techchallenge.billing.infrastructure.persistence.DynamoDbPersistence;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import org.springframework.data.domain.Sort;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("Testes Unitários - OrcamentoRepositoryImpl")
 class OrcamentoRepositoryImplTest {
 
     @Mock
-    private OrcamentoMongoRepository repository;
-
+    private DynamoDbPersistence dynamo;
     @Mock
-    private OrcamentoMongoMapper mapper;
-
-    @Mock
-    private Orcamento domainOrcamento;
-
-    @Mock
-    private com.techchallenge.billing.infrastructure.persistence.documents.OrcamentoDocument document;
-
-    private OrcamentoRepositoryImpl repositoryImpl;
+    private Orcamento orcamento;
+    private OrcamentoRepositoryImpl repository;
 
     @BeforeEach
     void setUp() {
-        repositoryImpl = new OrcamentoRepositoryImpl(repository, mapper);
+        repository = new OrcamentoRepositoryImpl(dynamo);
     }
 
     @Test
-    @DisplayName("Deve salvar orçamento")
-    void deveSalvarOrcamento() {
-        when(mapper.toDocument(domainOrcamento)).thenReturn(document);
-        when(repository.save(document)).thenReturn(document);
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
+    void savesWithIndexKeysAndUniqueOrderServiceKey() {
+        var id = UUID.randomUUID();
+        var osId = UUID.randomUUID();
+        var clienteId = UUID.randomUUID();
+        var created = LocalDateTime.of(2026, 1, 2, 3, 4, 5);
+        when(orcamento.getId()).thenReturn(id);
+        when(orcamento.getOsId()).thenReturn(osId);
+        when(orcamento.getClienteId()).thenReturn(clienteId);
+        when(orcamento.getStatus()).thenReturn(StatusOrcamento.GERADO);
+        when(orcamento.getDataCriacao()).thenReturn(created);
+        when(dynamo.save("billing-orcamentos", "id", id.toString(), orcamento,
+                Map.of(
+                        "osId", osId.toString(),
+                        "clienteId", clienteId.toString(),
+                        "clienteStatus", clienteId + "#GERADO",
+                        "dataCriacao", created.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS"))
+                ),
+                Map.of("osId", osId.toString()))).thenReturn(orcamento);
 
-        Orcamento result = repositoryImpl.save(domainOrcamento);
-
-        assertEquals(domainOrcamento, result);
-        verify(mapper).toDocument(domainOrcamento);
-        verify(repository).save(document);
-        verify(mapper).toDomain(document);
+        assertEquals(orcamento, repository.save(orcamento));
     }
 
     @Test
-    @DisplayName("Deve encontrar orçamento por ID")
-    void deveEncontrarOrcamentoPorId() {
+    void findByIdReturnsOrcamentoWhenExists() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
+        when(dynamo.get("billing-orcamentos", "id", id.toString(), Orcamento.class))
+                .thenReturn(Optional.of(orcamento));
 
-        Optional<Orcamento> result = repositoryImpl.findById(id);
+        Optional<Orcamento> result = repository.findById(id);
 
         assertTrue(result.isPresent());
-        assertEquals(domainOrcamento, result.get());
-        verify(repository).findById(id);
-        verify(mapper).toDomain(document);
+        assertEquals(orcamento, result.get());
     }
 
     @Test
-    @DisplayName("Deve retornar vazio quando orçamento não encontrado por ID")
-    void deveRetornarVazioQuandoOrcamentoNaoEncontradoPorId() {
+    void findByIdReturnsEmptyWhenNotExists() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(dynamo.get("billing-orcamentos", "id", id.toString(), Orcamento.class))
+                .thenReturn(Optional.empty());
 
-        Optional<Orcamento> result = repositoryImpl.findById(id);
+        Optional<Orcamento> result = repository.findById(id);
 
-        assertFalse(result.isPresent());
-        verify(repository).findById(id);
-        verify(mapper, never()).toDomain(any());
+        assertTrue(result.isEmpty());
     }
 
     @Test
-    @DisplayName("Deve encontrar orçamento por OsId")
-    void deveEncontrarOrcamentoPorOsId() {
+    void findByOsIdReturnsOrcamentoWhenExists() {
         UUID osId = UUID.randomUUID();
-        when(repository.findByOsId(osId)).thenReturn(Optional.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
+        UUID orcamentoId = UUID.randomUUID();
 
-        Optional<Orcamento> result = repositoryImpl.findByOsId(osId);
+        when(dynamo.findUniqueOwner("billing-orcamentos", "id", "osId", osId.toString()))
+                .thenReturn(Optional.of(orcamentoId.toString()));
+        when(dynamo.get("billing-orcamentos", "id", orcamentoId.toString(), Orcamento.class))
+                .thenReturn(Optional.of(orcamento));
+
+        Optional<Orcamento> result = repository.findByOsId(osId);
 
         assertTrue(result.isPresent());
-        assertEquals(domainOrcamento, result.get());
-        verify(repository).findByOsId(osId);
-        verify(mapper).toDomain(document);
+        assertEquals(orcamento, result.get());
     }
 
     @Test
-    @DisplayName("Deve encontrar orçamentos por clienteId")
-    void deveEncontrarOrcamentosPorClienteId() {
-        UUID clienteId = UUID.randomUUID();
-        when(repository.findAllByClienteId(clienteId)).thenReturn(List.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
+    void findByOsIdFallsBackToQueryWhenUniqueOwnerNotFound() {
+        UUID osId = UUID.randomUUID();
 
-        List<Orcamento> result = repositoryImpl.findByClienteId(clienteId);
+        when(dynamo.findUniqueOwner("billing-orcamentos", "id", "osId", osId.toString()))
+                .thenReturn(Optional.empty());
+        when(dynamo.query("billing-orcamentos", "osId-index", "osId", osId.toString(),
+                null, null, null, Orcamento.class))
+                .thenReturn(List.of(orcamento));
+
+        Optional<Orcamento> result = repository.findByOsId(osId);
+
+        assertTrue(result.isPresent());
+        assertEquals(orcamento, result.get());
+    }
+
+    @Test
+    void findByOsIdReturnsEmptyWhenNotExists() {
+        UUID osId = UUID.randomUUID();
+
+        when(dynamo.findUniqueOwner("billing-orcamentos", "id", "osId", osId.toString()))
+                .thenReturn(Optional.empty());
+        when(dynamo.query("billing-orcamentos", "osId-index", "osId", osId.toString(),
+                null, null, null, Orcamento.class))
+                .thenReturn(List.of());
+
+        Optional<Orcamento> result = repository.findByOsId(osId);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void findByClienteIdReturnsListOfOrcamentos() {
+        UUID clienteId = UUID.randomUUID();
+
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(new ArrayList<>(List.of(orcamento)));
+
+        List<Orcamento> result = repository.findByClienteId(clienteId);
 
         assertEquals(1, result.size());
-        assertEquals(domainOrcamento, result.get(0));
-        verify(repository).findAllByClienteId(clienteId);
-        verify(mapper).toDomain(document);
+        assertEquals(orcamento, result.get(0));
     }
 
     @Test
-    @DisplayName("Deve encontrar orçamentos por clienteId e status")
-    void deveEncontrarOrcamentosPorClienteIdEStatus() {
+    void findByClienteIdReturnsEmptyListWhenNoOrcamentos() {
         UUID clienteId = UUID.randomUUID();
-        StatusOrcamento status = StatusOrcamento.PAGO;
-        when(repository.findAllByClienteIdAndStatus(clienteId, status)).thenReturn(List.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
 
-        List<Orcamento> result = repositoryImpl.findByClienteIdAndStatus(clienteId, status);
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(new ArrayList<>());
+
+        List<Orcamento> result = repository.findByClienteId(clienteId);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void findByClienteIdAndStatusReturnsListOfOrcamentos() {
+        UUID clienteId = UUID.randomUUID();
+        StatusOrcamento status = StatusOrcamento.GERADO;
+
+        when(dynamo.query("billing-orcamentos", "clienteStatus-dataCriacao-index",
+                "clienteStatus", clienteId + "#GERADO", null, null, null, Orcamento.class))
+                .thenReturn(new ArrayList<>(List.of(orcamento)));
+
+        List<Orcamento> result = repository.findByClienteIdAndStatus(clienteId, status);
 
         assertEquals(1, result.size());
-        assertEquals(domainOrcamento, result.get(0));
-        verify(repository).findAllByClienteIdAndStatus(clienteId, status);
-        verify(mapper).toDomain(document);
+        assertEquals(orcamento, result.get(0));
     }
 
     @Test
-    @DisplayName("Deve encontrar orçamentos paginados por clienteId e status null")
-    void deveEncontrarOrcamentosPaginadosPorClienteIdEStatusNull() {
-        UUID clienteId = UUID.randomUUID();
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<com.techchallenge.billing.infrastructure.persistence.documents.OrcamentoDocument> page = new PageImpl<>(List.of(document));
+    void queriesPaginatedClientOrcamentosThroughCustomerIndex() {
+        var clienteId = UUID.randomUUID();
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(new ArrayList<>(List.of(orcamento)));
 
-        when(repository.findAllByClienteId(clienteId, pageable)).thenReturn(page);
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
+        var page = repository.findPageByClienteIdAndStatus(clienteId, null, PageRequest.of(0, 10));
 
-        Page<Orcamento> result = repositoryImpl.findPageByClienteIdAndStatus(clienteId, null, pageable);
-
-        assertEquals(1, result.getTotalElements());
-        assertEquals(domainOrcamento, result.getContent().get(0));
-        verify(repository).findAllByClienteId(clienteId, pageable);
-        verify(mapper).toDomain(document);
+        assertEquals(List.of(orcamento), page.getContent());
+        assertEquals(1, page.getTotalElements());
+        verify(dynamo).query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class);
     }
 
     @Test
-    @DisplayName("Deve encontrar orçamentos paginados por clienteId e status específico")
-    void deveEncontrarOrcamentosPaginadosPorClienteIdEStatusEspecifico() {
+    void queriesPaginatedClientOrcamentosThroughCustomerStatusIndex() {
         UUID clienteId = UUID.randomUUID();
-        StatusOrcamento status = StatusOrcamento.PAGO;
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<com.techchallenge.billing.infrastructure.persistence.documents.OrcamentoDocument> page = new PageImpl<>(List.of(document));
+        StatusOrcamento status = StatusOrcamento.GERADO;
 
-        when(repository.findAllByClienteIdAndStatus(clienteId, status, pageable)).thenReturn(page);
-        when(mapper.toDomain(document)).thenReturn(domainOrcamento);
+        when(dynamo.query("billing-orcamentos", "clienteStatus-dataCriacao-index",
+                "clienteStatus", clienteId + "#GERADO", null, null, null, Orcamento.class))
+                .thenReturn(new ArrayList<>(List.of(orcamento)));
 
-        Page<Orcamento> result = repositoryImpl.findPageByClienteIdAndStatus(clienteId, status, pageable);
+        Page<Orcamento> page = repository.findPageByClienteIdAndStatus(clienteId, status, PageRequest.of(0, 10));
 
-        assertEquals(1, result.getTotalElements());
-        assertEquals(domainOrcamento, result.getContent().get(0));
-        verify(repository).findAllByClienteIdAndStatus(clienteId, status, pageable);
-        verify(mapper).toDomain(document);
+        assertEquals(1, page.getTotalElements());
+        verify(dynamo).query("billing-orcamentos", "clienteStatus-dataCriacao-index",
+                "clienteStatus", clienteId + "#GERADO", null, null, null, Orcamento.class);
+    }
+
+    @Test
+    void handlesPaginationWithPageRequest() {
+        UUID clienteId = UUID.randomUUID();
+        Orcamento orc1 = new Orcamento();
+        Orcamento orc2 = new Orcamento();
+        Orcamento orc3 = new Orcamento();
+        List<Orcamento> orcamentos = new ArrayList<>(List.of(orc1, orc2, orc3));
+
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(orcamentos);
+
+        Page<Orcamento> page = repository.findPageByClienteIdAndStatus(clienteId, null, PageRequest.of(0, 2));
+
+        assertEquals(2, page.getContent().size());
+        assertEquals(3, page.getTotalElements());
+        assertEquals(0, page.getNumber());
+        assertEquals(2, page.getSize());
+    }
+
+    @Test
+    void handlesPaginationWithSort() {
+        UUID clienteId = UUID.randomUUID();
+        Orcamento orc1 = new Orcamento();
+        Orcamento orc2 = new Orcamento();
+        List<Orcamento> orcamentos = new ArrayList<>(List.of(orc1, orc2));
+
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(orcamentos);
+
+        Page<Orcamento> page = repository.findPageByClienteIdAndStatus(
+                clienteId,
+                null,
+                PageRequest.of(0, 10, Sort.by("valorTotal").ascending())
+        );
+
+        assertEquals(2, page.getContent().size());
+    }
+
+    @Test
+    void handlesPaginationWithDescendingSort() {
+        UUID clienteId = UUID.randomUUID();
+        Orcamento orc1 = new Orcamento();
+        Orcamento orc2 = new Orcamento();
+        List<Orcamento> orcamentos = new ArrayList<>(List.of(orc1, orc2));
+
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(orcamentos);
+
+        Page<Orcamento> page = repository.findPageByClienteIdAndStatus(
+                clienteId,
+                null,
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "dataCriacao"))
+        );
+
+        assertEquals(2, page.getContent().size());
+    }
+
+    @Test
+    void handlesEmptyResults() {
+        UUID clienteId = UUID.randomUUID();
+
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(List.of());
+
+        Page<Orcamento> page = repository.findPageByClienteIdAndStatus(clienteId, null, PageRequest.of(0, 10));
+
+        assertTrue(page.getContent().isEmpty());
+        assertEquals(0, page.getTotalElements());
+    }
+
+    @Test
+    void handlesPageBeyondResults() {
+        UUID clienteId = UUID.randomUUID();
+        Orcamento orc1 = new Orcamento();
+        List<Orcamento> orcamentos = new ArrayList<>(List.of(orc1));
+
+        when(dynamo.query("billing-orcamentos", "clienteId-dataCriacao-index",
+                "clienteId", clienteId.toString(), null, null, null, Orcamento.class))
+                .thenReturn(orcamentos);
+
+        Page<Orcamento> page = repository.findPageByClienteIdAndStatus(clienteId, null, PageRequest.of(5, 10));
+
+        assertTrue(page.getContent().isEmpty());
+        assertEquals(1, page.getTotalElements());
     }
 }

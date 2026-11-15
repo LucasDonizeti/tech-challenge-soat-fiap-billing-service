@@ -1,17 +1,6 @@
 # Profile TEST - Unit and Integration Tests
 # Used automatically in test context
 
-spring:
-  data:
-    mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/billing-test}
-      database: billing-test
-      auto-index-creation: true
-  mongodb:
-    representation:
-      uuid: standard
-
-# Mock/Local messaging for tests
 messaging:
   type: local
 

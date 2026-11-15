@@ -22,6 +22,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("Testes Unitários - WebhookMercadoPagoController")
@@ -247,5 +248,368 @@ class WebhookMercadoPagoControllerTest {
                 controller.receive("signature", "request-id", "signed-order-id", body));
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook sem os dados necessários para validar a assinatura")
+    void rejectsWebhookWithoutSignatureHeaders() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORDTST01M6EXRT5E37H8P5VX32YF6E0K";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive(null, null, orderId, body));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook com JSON inválido")
+    void rejectsWebhookWithInvalidJson() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String invalidJson = "{invalid json";
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", "order-id", invalidJson));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook com action inválido")
+    void rejectsWebhookWithInvalidAction() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "payment.created",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", orderId, body));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook com type inválido")
+    void rejectsWebhookWithInvalidType() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "payment",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", orderId, body));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook sem orderId")
+    void rejectsWebhookWithoutOrderId() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {}
+                }
+                """;
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", "order-id", body));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook com orderId em branco")
+    void rejectsWebhookWithBlankOrderId() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "   "}
+                }
+                """;
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", "order-id", body));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook quando signature está ausente")
+    void rejectsWebhookWithoutSignature() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive(null, "request-id", orderId, body));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook quando requestId está ausente")
+    void rejectsWebhookWithoutRequestId() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", null, orderId, body));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook quando signedDataId está ausente")
+    void rejectsWebhookWithoutSignedDataId() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", null, body));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        verify(signatureValidator, never()).isValid(any(), any(), any(), any());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook quando assinatura é inválida")
+    void rejectsWebhookWithInvalidSignature() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        when(signatureValidator.isValid(any(), eq(orderId), eq("invalid-signature"), eq("request-id")))
+                .thenReturn(false);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("invalid-signature", "request-id", orderId, body));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Rejeita webhook quando validação de assinatura lança exceção")
+    void rejectsWebhookWhenSignatureValidationThrowsException() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        when(signatureValidator.isValid(any(), eq(orderId), eq("signature"), eq("request-id")))
+                .thenThrow(new RuntimeException("Validation error"));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () ->
+                controller.receive("signature", "request-id", orderId, body));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        verify(processarWebhookInput, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Propaga exceção quando processamento do webhook falha")
+    void propagatesExceptionWhenWebhookProcessingFails() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.processed",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        when(signatureValidator.isValid(any(), eq(orderId), eq("signature"), eq("request-id")))
+                .thenReturn(true);
+        doThrow(new RuntimeException("Processing failed"))
+                .when(processarWebhookInput).execute(any(ProcessarWebhookCommand.class));
+
+        RuntimeException exception = assertThrows(RuntimeException.class, () ->
+                controller.receive("signature", "request-id", orderId, body));
+
+        assertEquals("Processing failed", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Aceita order.updated")
+    void acceptsOrderUpdatedAction() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.updated",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        when(signatureValidator.isValid(any(), eq(orderId), eq("signature"), eq("request-id")))
+                .thenReturn(true);
+
+        ResponseEntity<WebhookMercadoPagoController.WebhookReceipt> response =
+                controller.receive("signature", "request-id", orderId, body);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(processarWebhookInput).execute(any(ProcessarWebhookCommand.class));
+    }
+
+    @Test
+    @DisplayName("Aceita order.canceled")
+    void acceptsOrderCanceledAction() {
+        var signatureValidator = mock(MercadoPagoWebhookSignatureValidator.class);
+        var processarWebhookInput = mock(ProcessarWebhookInput.class);
+        var controller = new WebhookMercadoPagoController(
+                signatureValidator, processarWebhookInput, new ObjectMapper());
+        String orderId = "ORD123";
+        String body = """
+                {
+                  "action": "order.canceled",
+                  "type": "order",
+                  "data": {"id": "%s"}
+                }
+                """.formatted(orderId);
+
+        when(signatureValidator.isValid(any(), eq(orderId), eq("signature"), eq("request-id")))
+                .thenReturn(true);
+
+        ResponseEntity<WebhookMercadoPagoController.WebhookReceipt> response =
+                controller.receive("signature", "request-id", orderId, body);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(processarWebhookInput).execute(any(ProcessarWebhookCommand.class));
+    }
+
+    @Test
+    @DisplayName("WebhookReceipt rejeita status vazio")
+    void webhookReceiptRejectsBlankStatus() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new WebhookMercadoPagoController.WebhookReceipt("")
+        );
+    }
+
+    @Test
+    @DisplayName("WebhookReceipt rejeita status nulo")
+    void webhookReceiptRejectsNullStatus() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new WebhookMercadoPagoController.WebhookReceipt(null)
+        );
+    }
+
+    @Test
+    @DisplayName("WebhookReceipt aceita status válido")
+    void webhookReceiptAcceptsValidStatus() {
+        WebhookMercadoPagoController.WebhookReceipt receipt =
+                new WebhookMercadoPagoController.WebhookReceipt("received");
+
+        assertEquals("received", receipt.status());
     }
 }

@@ -1,119 +1,332 @@
 package com.techchallenge.billing.infrastructure.persistence.repositories.impl;
 
 import com.techchallenge.billing.domain.models.WebhookEventLog;
-import com.techchallenge.billing.infrastructure.persistence.mappers.WebhookEventLogMongoMapper;
-import com.techchallenge.billing.infrastructure.persistence.repositories.WebhookEventLogMongoRepository;
+import com.techchallenge.billing.infrastructure.persistence.DynamoDbPersistence;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("Testes Unitários - WebhookEventLogRepositoryImpl")
 class WebhookEventLogRepositoryImplTest {
 
     @Mock
-    private WebhookEventLogMongoRepository repository;
+    private DynamoDbPersistence dynamo;
 
-    @Mock
-    private WebhookEventLogMongoMapper mapper;
-
-    @Mock
-    private WebhookEventLog domainEventLog;
-
-    @Mock
-    private com.techchallenge.billing.infrastructure.persistence.documents.WebhookEventLogDocument document;
-
-    private WebhookEventLogRepositoryImpl repositoryImpl;
+    private WebhookEventLogRepositoryImpl repository;
 
     @BeforeEach
     void setUp() {
-        repositoryImpl = new WebhookEventLogRepositoryImpl(repository, mapper);
+        repository = new WebhookEventLogRepositoryImpl(dynamo);
     }
 
     @Test
-    @DisplayName("Deve salvar webhook event log")
-    void deveSalvarWebhookEventLog() {
-        when(mapper.toDocument(domainEventLog)).thenReturn(document);
-        when(repository.save(document)).thenReturn(document);
-        when(mapper.toDomain(document)).thenReturn(domainEventLog);
-
-        WebhookEventLog result = repositoryImpl.save(domainEventLog);
-
-        assertEquals(domainEventLog, result);
-        verify(mapper).toDocument(domainEventLog);
-        verify(repository).save(document);
-        verify(mapper).toDomain(document);
-    }
-
-    @Test
-    @DisplayName("Deve encontrar webhook event log por ID")
-    void deveEncontrarWebhookEventLogPorId() {
+    void savesWebhookEventLogSuccessfully() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainEventLog);
+        String mercadoPagoPaymentId = "ORD123";
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("id", "12345");
 
-        Optional<WebhookEventLog> result = repositoryImpl.findById(id);
+        WebhookEventLog eventLog = new WebhookEventLog(
+                id,
+                mercadoPagoPaymentId,
+                "payment.created",
+                LocalDateTime.now(),
+                payload,
+                "PENDENTE",
+                0,
+                null
+        );
+
+        when(dynamo.save(anyString(), anyString(), anyString(), any(WebhookEventLog.class), anyMap(), anyMap()))
+                .thenReturn(eventLog);
+
+        WebhookEventLog result = repository.save(eventLog);
+
+        assertNotNull(result);
+        verify(dynamo).save(
+                eq("billing-webhook-event-log"),
+                eq("id"),
+                eq(id.toString()),
+                eq(eventLog),
+                anyMap(),
+                eq(Map.of())
+        );
+    }
+
+    @Test
+    void saveAddsIndexAttributes() {
+        UUID id = UUID.randomUUID();
+        String mercadoPagoPaymentId = "ORD123";
+        LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> payload = new HashMap<>();
+
+        WebhookEventLog eventLog = new WebhookEventLog(
+                id,
+                mercadoPagoPaymentId,
+                "payment.created",
+                now,
+                payload,
+                "PENDENTE",
+                0,
+                null
+        );
+
+        when(dynamo.save(anyString(), anyString(), anyString(), any(WebhookEventLog.class), anyMap(), anyMap()))
+                .thenReturn(eventLog);
+
+        repository.save(eventLog);
+
+        verify(dynamo).save(
+                eq("billing-webhook-event-log"),
+                eq("id"),
+                eq(id.toString()),
+                eq(eventLog),
+                argThat((Map<String, String> attributes) ->
+                        attributes.containsKey("mercadoPagoPaymentId") &&
+                        mercadoPagoPaymentId.equals(attributes.get("mercadoPagoPaymentId")) &&
+                        attributes.containsKey("statusProcessamento") &&
+                        "PENDENTE".equals(attributes.get("statusProcessamento"))
+                ),
+                eq(Map.of())
+        );
+    }
+
+    @Test
+    void saveDoesNotAddNullIndexAttributes() {
+        UUID id = UUID.randomUUID();
+        Map<String, Object> payload = new HashMap<>();
+
+        WebhookEventLog eventLog = new WebhookEventLog(
+                id,
+                null,
+                "payment.created",
+                LocalDateTime.now(),
+                payload,
+                "PENDENTE",
+                0,
+                null
+        );
+
+        when(dynamo.save(anyString(), anyString(), anyString(), any(WebhookEventLog.class), anyMap(), anyMap()))
+                .thenReturn(eventLog);
+
+        repository.save(eventLog);
+
+        verify(dynamo).save(
+                eq("billing-webhook-event-log"),
+                eq("id"),
+                eq(id.toString()),
+                eq(eventLog),
+                argThat((Map<String, String> attributes) -> !attributes.containsKey("mercadoPagoPaymentId")),
+                eq(Map.of())
+        );
+    }
+
+    @Test
+    void findByIdReturnsEventLogWhenExists() {
+        UUID id = UUID.randomUUID();
+        WebhookEventLog eventLog = new WebhookEventLog(
+                id,
+                "ORD123",
+                "payment.created",
+                LocalDateTime.now(),
+                new HashMap<>(),
+                "PENDENTE",
+                0,
+                null
+        );
+
+        when(dynamo.get(eq("billing-webhook-event-log"), eq("id"), eq(id.toString()), eq(WebhookEventLog.class)))
+                .thenReturn(Optional.of(eventLog));
+
+        Optional<WebhookEventLog> result = repository.findById(id);
 
         assertTrue(result.isPresent());
-        assertEquals(domainEventLog, result.get());
-        verify(repository).findById(id);
-        verify(mapper).toDomain(document);
+        assertEquals(id, result.get().id());
     }
 
     @Test
-    @DisplayName("Deve retornar vazio quando webhook event log não encontrado por ID")
-    void deveRetornarVazioQuandoWebhookEventLogNaoEncontradoPorId() {
+    void findByIdReturnsEmptyWhenNotExists() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
 
-        Optional<WebhookEventLog> result = repositoryImpl.findById(id);
+        when(dynamo.get(eq("billing-webhook-event-log"), eq("id"), eq(id.toString()), eq(WebhookEventLog.class)))
+                .thenReturn(Optional.empty());
+
+        Optional<WebhookEventLog> result = repository.findById(id);
 
         assertFalse(result.isPresent());
-        verify(repository).findById(id);
-        verify(mapper, never()).toDomain(any());
     }
 
     @Test
-    @DisplayName("Deve encontrar webhook event logs por mercadoPagoPaymentId")
-    void deveEncontrarWebhookEventLogsPorMercadoPagoPaymentId() {
-        String mercadoPagoPaymentId = "mp-payment-123";
-        when(repository.findAllByMercadoPagoPaymentId(mercadoPagoPaymentId)).thenReturn(List.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainEventLog);
+    void findByMercadoPagoPaymentIdReturnsListOfEventLogs() {
+        String mercadoPagoPaymentId = "ORD123";
+        WebhookEventLog event1 = new WebhookEventLog(
+                UUID.randomUUID(),
+                mercadoPagoPaymentId,
+                "payment.created",
+                LocalDateTime.now(),
+                new HashMap<>(),
+                "PENDENTE",
+                0,
+                null
+        );
+        WebhookEventLog event2 = new WebhookEventLog(
+                UUID.randomUUID(),
+                mercadoPagoPaymentId,
+                "payment.updated",
+                LocalDateTime.now(),
+                new HashMap<>(),
+                "PROCESSADO",
+                1,
+                null
+        );
 
-        List<WebhookEventLog> result = repositoryImpl.findByMercadoPagoPaymentId(mercadoPagoPaymentId);
+        when(dynamo.query(
+                eq("billing-webhook-event-log"),
+                eq("mercadoPagoPaymentId-index"),
+                eq("mercadoPagoPaymentId"),
+                eq(mercadoPagoPaymentId),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(WebhookEventLog.class)
+        )).thenReturn(List.of(event1, event2));
 
-        assertEquals(1, result.size());
-        assertEquals(domainEventLog, result.get(0));
-        verify(repository).findAllByMercadoPagoPaymentId(mercadoPagoPaymentId);
-        verify(mapper).toDomain(document);
+        List<WebhookEventLog> result = repository.findByMercadoPagoPaymentId(mercadoPagoPaymentId);
+
+        assertEquals(2, result.size());
+        assertEquals(mercadoPagoPaymentId, result.get(0).mercadoPagoPaymentId());
+        assertEquals(mercadoPagoPaymentId, result.get(1).mercadoPagoPaymentId());
     }
 
     @Test
-    @DisplayName("Deve encontrar webhook event logs com pending retry status e timestamp")
-    void deveEncontrarWebhookEventLogsWithPendingRetryStatusETimestamp() {
-        LocalDateTime timestamp = LocalDateTime.now();
-        when(repository.findAllByStatusProcessamentoAndProximaRetentativaLessThanEqual(
-                "PENDENTE_RETRY", timestamp)).thenReturn(List.of(document));
-        when(mapper.toDomain(document)).thenReturn(domainEventLog);
+    void findByMercadoPagoPaymentIdReturnsEmptyListWhenNoEvents() {
+        String mercadoPagoPaymentId = "ORD123";
 
-        List<WebhookEventLog> result = repositoryImpl.findPendingRetriesDueAt(timestamp);
+        when(dynamo.query(
+                eq("billing-webhook-event-log"),
+                eq("mercadoPagoPaymentId-index"),
+                eq("mercadoPagoPaymentId"),
+                eq(mercadoPagoPaymentId),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(WebhookEventLog.class)
+        )).thenReturn(List.of());
 
-        assertEquals(1, result.size());
-        assertEquals(domainEventLog, result.get(0));
-        verify(repository).findAllByStatusProcessamentoAndProximaRetentativaLessThanEqual(
-                "PENDENTE_RETRY", timestamp);
-        verify(mapper).toDomain(document);
+        List<WebhookEventLog> result = repository.findByMercadoPagoPaymentId(mercadoPagoPaymentId);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void findPendingRetriesDueAtReturnsEventsDueForRetry() {
+        LocalDateTime now = LocalDateTime.now();
+        WebhookEventLog event1 = new WebhookEventLog(
+                UUID.randomUUID(),
+                "ORD123",
+                "payment.created",
+                LocalDateTime.now(),
+                new HashMap<>(),
+                "PENDENTE_RETRY",
+                1,
+                now.minusMinutes(5)
+        );
+        WebhookEventLog event2 = new WebhookEventLog(
+                UUID.randomUUID(),
+                "ORD456",
+                "payment.updated",
+                LocalDateTime.now(),
+                new HashMap<>(),
+                "PENDENTE_RETRY",
+                2,
+                now.minusMinutes(10)
+        );
+
+        when(dynamo.query(
+                eq("billing-webhook-event-log"),
+                eq("status-proximaRetentativa-index"),
+                eq("statusProcessamento"),
+                eq("PENDENTE_RETRY"),
+                eq("proximaRetentativa"),
+                eq("<="),
+                anyString(),
+                eq(WebhookEventLog.class)
+        )).thenReturn(List.of(event1, event2));
+
+        List<WebhookEventLog> result = repository.findPendingRetriesDueAt(now);
+
+        assertEquals(2, result.size());
+        assertEquals("PENDENTE_RETRY", result.get(0).statusProcessamento());
+        assertEquals("PENDENTE_RETRY", result.get(1).statusProcessamento());
+    }
+
+    @Test
+    void findPendingRetriesDueAtReturnsEmptyListWhenNoPendingRetries() {
+        LocalDateTime now = LocalDateTime.now();
+
+        when(dynamo.query(
+                eq("billing-webhook-event-log"),
+                eq("status-proximaRetentativa-index"),
+                eq("statusProcessamento"),
+                eq("PENDENTE_RETRY"),
+                eq("proximaRetentativa"),
+                eq("<="),
+                anyString(),
+                eq(WebhookEventLog.class)
+        )).thenReturn(List.of());
+
+        List<WebhookEventLog> result = repository.findPendingRetriesDueAt(now);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void saveFormatsLocalDateTimeForIndex() {
+        UUID id = UUID.randomUUID();
+        LocalDateTime now = LocalDateTime.of(2024, 1, 15, 10, 30, 45, 123456789);
+        Map<String, Object> payload = new HashMap<>();
+
+        WebhookEventLog eventLog = new WebhookEventLog(
+                id,
+                "ORD123",
+                "payment.created",
+                now,
+                payload,
+                "PENDENTE",
+                0,
+                now.plusMinutes(5)
+        );
+
+        when(dynamo.save(anyString(), anyString(), anyString(), any(WebhookEventLog.class), anyMap(), anyMap()))
+                .thenReturn(eventLog);
+
+        repository.save(eventLog);
+
+        verify(dynamo).save(
+                eq("billing-webhook-event-log"),
+                eq("id"),
+                eq(id.toString()),
+                eq(eventLog),
+                argThat((Map<String, String> attributes) ->
+                        attributes.containsKey("proximaRetentativa") &&
+                        attributes.get("proximaRetentativa").contains("2024-01-15")
+                ),
+                eq(Map.of())
+        );
     }
 }

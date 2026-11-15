@@ -2,7 +2,6 @@ package com.techchallenge.billing.infrastructure.messaging;
 
 import com.techchallenge.billing.application.gateway.ports.output.SagaEventPublisher;
 import com.techchallenge.billing.domain.events.SagaPaymentInitiatedEvent;
-import com.techchallenge.billing.domain.events.SagaPaymentConfirmedEvent;
 import com.techchallenge.billing.domain.events.SagaPaymentExpiredEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -19,11 +18,6 @@ public class LocalSagaEventPublisher implements SagaEventPublisher {
     @Override
     public void publishSagaPaymentInitiated(SagaPaymentInitiatedEvent event) {
         log.info("[LOCAL] SagaPaymentInitiatedEvent: {}", event);
-    }
-
-    @Override
-    public void publishSagaPaymentConfirmed(SagaPaymentConfirmedEvent event) {
-        log.info("[LOCAL] SagaPaymentConfirmedEvent: {}", event);
     }
 
     @Override

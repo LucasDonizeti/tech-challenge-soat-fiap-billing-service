@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.techchallenge.billing.application.gateway.ports.output.SagaEventPublisher;
 import com.techchallenge.billing.domain.events.SagaPaymentInitiatedEvent;
-import com.techchallenge.billing.domain.events.SagaPaymentConfirmedEvent;
 import com.techchallenge.billing.domain.events.SagaPaymentExpiredEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,9 +30,6 @@ public class RabbitSagaEventPublisher implements SagaEventPublisher {
     @Value("${messaging.rabbit.routing-keys.saga-initiated:saga.payment.initiated}")
     private String sagaInitiatedRoutingKey;
 
-    @Value("${messaging.rabbit.routing-keys.saga-confirmed:saga.payment.confirmed}")
-    private String sagaConfirmedRoutingKey;
-
     @Value("${messaging.rabbit.routing-keys.saga-expired:saga.payment.expired}")
     private String sagaExpiredRoutingKey;
 
@@ -47,19 +43,6 @@ public class RabbitSagaEventPublisher implements SagaEventPublisher {
         } catch (JsonProcessingException e) {
             log.error("Erro ao serializar SagaPaymentInitiatedEvent", e);
             throw new RuntimeException("Falha ao publicar evento de saga iniciada", e);
-        }
-    }
-
-    @Override
-    public void publishSagaPaymentConfirmed(SagaPaymentConfirmedEvent event) {
-        try {
-            String message = objectMapper.writeValueAsString(event);
-            rabbitTemplate.convertAndSend(exchange, sagaConfirmedRoutingKey, message);
-            log.info("SagaPaymentConfirmedEvent publicado: sagaId={}, statusFinal={}",
-                    event.getSagaId(), event.getStatusFinal());
-        } catch (JsonProcessingException e) {
-            log.error("Erro ao serializar SagaPaymentConfirmedEvent", e);
-            throw new RuntimeException("Falha ao publicar evento de saga confirmada", e);
         }
     }
 

@@ -17,23 +17,14 @@ spring:
     port: ${SPRING_RABBITMQ_PORT:5672}
     username: ${SPRING_RABBITMQ_USERNAME:guest}
     password: ${SPRING_RABBITMQ_PASSWORD:guest}
-  data:
-    mongodb:
-      # Produção: defina MONGODB_URI com a URI do MongoDB gerenciado.
-      uri: ${MONGODB_URI:mongodb://billing_user:billing_password@localhost:27017/billing?authSource=admin&maxPoolSize=50&minPoolSize=0&uuidRepresentation=standard}
-      database: ${MONGODB_DATABASE:billing}
-      auto-index-creation: false
-
-  mongodb:
-    representation:
-      uuid: standard
-
   security:
     jwt:
       secret: ${JWT_SECRET:mySuperSecretKeyForJWTTokenGenerationThatIsSecureEnough}
       expiration: ${JWT_EXPIRATION:86400}
 
 aws:
+  dynamodb:
+    endpoint: ${DYNAMODB_ENDPOINT:}
   sns:
     topics:
       cobranca-pix-gerada: ${AWS_SNS_TOPIC_COBRANCA_PIX:}
@@ -42,6 +33,8 @@ aws:
       # Produção: defina AWS_SNS_TOPIC_PAGAMENTO_APROVADO com o ARN do tópico.
       pagamento-recusado: ${AWS_SNS_TOPIC_PAGAMENTO_RECUSADO:}
       # Produção: defina AWS_SNS_TOPIC_PAGAMENTO_RECUSADO com o ARN do tópico.
+      saga-initiated: ${AWS_SNS_TOPIC_SAGA_INITIATED:}
+      saga-expired: ${AWS_SNS_TOPIC_SAGA_EXPIRED:}
   sqs:
     queues:
       orcamento-pronto: ${AWS_SQS_QUEUE_ORCAMENTO_PRONTO:}
@@ -53,7 +46,6 @@ messaging:
     queues:
       orcamento-pronto: ${RABBITMQ_QUEUE_ORCAMENTO_PRONTO:billing.orcamento-pronto}
       saga-initiated: ${RABBITMQ_QUEUE_SAGA_INITIATED:os.saga.payment.initiated}
-      saga-confirmed: ${RABBITMQ_QUEUE_SAGA_CONFIRMED:os.saga.payment.confirmed}
       saga-expired: ${RABBITMQ_QUEUE_SAGA_EXPIRED:os.saga.payment.expired}
     routing-keys:
       orcamento-pronto: ${RABBITMQ_KEY_ORCAMENTO_PRONTO:orcamento.pronto}
@@ -61,13 +53,12 @@ messaging:
       pagamento-aprovado: ${RABBITMQ_KEY_PAGAMENTO_APROVADO:pagamento.aprovado}
       pagamento-recusado: ${RABBITMQ_KEY_PAGAMENTO_RECUSADO:pagamento.recusado}
       saga-initiated: ${RABBITMQ_KEY_SAGA_INITIATED:saga.payment.initiated}
-      saga-confirmed: ${RABBITMQ_KEY_SAGA_CONFIRMED:saga.payment.confirmed}
       saga-expired: ${RABBITMQ_KEY_SAGA_EXPIRED:saga.payment.expired}
 
 mercadopago:
-  access-token: ${MERCADO_PAGO_ACCESS_TOKEN:APP_USR-...}
-  notification-url: ${MERCADO_PAGO_WEBHOOK_URL:https://localhost:8082/api/v1/billings/webhooks/mercadopago}
-  webhook-secret: ${MERCADO_PAGO_WEBHOOK_SECRET}
+  access-token: ${MERCADO_PAGO_ACCESS_TOKEN:}
+  notification-url: "${MERCADO_PAGO_BASE_URL:http://localhost:8082}${SERVER_SERVLET_CONTEXT_PATH:}/api/v1/billings/webhooks/mercadopago"
+  webhook-secret: ${MERCADO_PAGO_WEBHOOK_SECRET:}
   skip-signature-validation: ${MERCADO_PAGO_SKIP_SIGNATURE_VALIDATION:false}
 
 os-service:

@@ -37,6 +37,9 @@ informe os nomes/ARNs dos tópicos SNS e das filas SQS do ambiente. O chart de
 produção define `SPRING_CLOUD_AWS_SQS_QUEUE_NOT_FOUND_STRATEGY=FAIL` para impedir
 que o Billing tente criar filas SQS ausentes. Localmente, o serviço usa RabbitMQ
 (`MESSAGING_TYPE=rabbit`), sem criação de filas SQS.
+Como a dependência AMQP continua no classpath para uso local, o chart de produção
+define `RABBIT_HEALTH_CHECK_ENABLED=false` para não incluir o RabbitMQ inativo no
+health geral quando o transporte usado é AWS.
 
 Para persistência local, execute `docker compose up -d dynamodb dynamodb-init` no
 Compose central e defina `DYNAMODB_ENDPOINT=http://localhost:8000` ao iniciar o

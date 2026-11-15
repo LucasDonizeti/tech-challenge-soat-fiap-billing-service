@@ -77,6 +77,21 @@ class BillingEndpointAuthorizationTest {
     }
 
     @Test
+    void allowsActuatorHealthEndpointsWithoutAuthentication() throws Exception {
+        for (String path : List.of(
+                "/actuator/health",
+                "/actuator/health/liveness",
+                "/actuator/health/readiness")) {
+            int responseStatus = mockMvc.perform(get(path))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+
+            assertNotEquals(401, responseStatus, path + " must be publicly accessible");
+        }
+    }
+
+    @Test
     void rejectsAuthenticatedNonAdminUsers() throws Exception {
         mockMvc.perform(get("/api/v1/billings/orcamentos")
                         .param("clienteId", "00000000-0000-0000-0000-000000000001")

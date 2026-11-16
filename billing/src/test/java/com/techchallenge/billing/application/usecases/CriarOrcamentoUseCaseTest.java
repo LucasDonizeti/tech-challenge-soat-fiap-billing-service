@@ -108,8 +108,10 @@ class CriarOrcamentoUseCaseTest {
 
         when(sagaPaymentService.hasPendingPixForOrdemServico(osId)).thenReturn(false);
         when(orcamentoGateway.findByOsId(osId)).thenReturn(Optional.empty());
+        List<UUID> clienteIdsPersistidos = new ArrayList<>();
         when(orcamentoGateway.save(any(Orcamento.class))).thenAnswer(invocation -> {
             Orcamento orc = invocation.getArgument(0);
+            clienteIdsPersistidos.add(orc.getClienteId());
             when(orcamentoGateway.findById(orc.getId())).thenReturn(Optional.of(orc));
             return orc;
         });
@@ -154,6 +156,7 @@ class CriarOrcamentoUseCaseTest {
 
         assertNotNull(result);
         verify(orcamentoGateway, times(3)).save(any(Orcamento.class));
+        assertEquals(clienteId, clienteIdsPersistidos.get(0));
         verify(mercadoPagoGateway).createPixPayment(any(CreatePixPaymentCommand.class));
         verify(pagamentoGateway).save(any(Pagamento.class));
         verify(sagaPaymentService).initiateSaga(

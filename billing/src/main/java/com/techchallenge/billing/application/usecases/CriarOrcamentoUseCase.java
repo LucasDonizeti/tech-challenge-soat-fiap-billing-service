@@ -81,13 +81,13 @@ public class CriarOrcamentoUseCase implements CriarOrcamentoInput {
             orcamento = new Orcamento();
             orcamento.setId(UUID.randomUUID());
             orcamento.setOsId(command.ordemServicoId());
-            orcamento.setClienteId(null);
-            orcamento.setVeiculoId(null);
-            orcamento.setValorTotal(null);
+            orcamento.setClienteId(command.clienteId());
+            orcamento.setVeiculoId(command.veiculoId());
+            orcamento.setValorTotal(command.valorTotal());
             orcamento.setStatus(StatusOrcamento.GERADO);
             orcamento.setDataCriacao(now);
             orcamento.setDataAtualizacao(now);
-            orcamento.setDescricaoServicos(null);
+            orcamento.setDescricaoServicos(command.descricaoServicos());
             orcamento.setHistoricoStatusChanges(new ArrayList<>(
                     java.util.List.of(new StatusOrcamentoChange(StatusOrcamento.GERADO, now))
             ));

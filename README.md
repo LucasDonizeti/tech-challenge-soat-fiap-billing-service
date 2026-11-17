@@ -20,6 +20,26 @@ Em produção, o `db-infra` provisiona as tabelas DynamoDB. O Billing usa a cade
 
 Para pagamentos em produção, configure os GitHub Actions Secrets `MERCADO_PAGO_ACCESS_TOKEN` e `MERCADO_PAGO_WEBHOOK_SECRET`. A pipeline consulta o endpoint do API Gateway `oficina-api-gateway` na região configurada e injeta somente essa URL base no ConfigMap. O `application.yaml` concatena a base, o contexto servlet (`/v1/billing-service`) e o caminho do controller (`/api/v1/billings/webhooks/mercadopago`); por isso, a rota do Billing na k8s-infra precisa estar provisionada antes do deploy. Localmente, a base padrão é `http://localhost:8082`. As credenciais AWS da pipeline precisam permitir `apigateway:GET` para consultar o Gateway. A pipeline injeta o token/segredo em um Kubernetes Secret. Não habilite `MERCADO_PAGO_SKIP_SIGNATURE_VALIDATION` em produção.
 
+> **Atenção à configuração atual:** `k8s/values-prod.yaml` define
+> `MERCADO_PAGO_SKIP_SIGNATURE_VALIDATION: "true"` e o workflow não sobrescreve
+> esse valor. Enquanto estiver assim, o Billing não valida a assinatura do
+> webhook, apesar de `MERCADO_PAGO_WEBHOOK_SECRET` estar configurado. Defina-o
+> como `"false"` e confira o ConfigMap efetivo antes de expor a integração.
+
+## API e autenticação
+
+Localmente, os endpoints de Billing começam em `/api/v1/billings` na porta
+`8082`; em produção, acrescente o prefixo `/v1/billing-service`. A criação de
+orçamentos e a consulta de orçamentos/pagamentos aceitam JWT `ADMIN` ou
+`SERVICE`; os demais endpoints administrativos exigem `ADMIN`. O webhook
+`POST /api/v1/billings/webhooks/mercadopago` não exige JWT, mas deve validar a
+assinatura do Mercado Pago. O serviço valida JWTs com HMAC; `JWT_SECRET` deve
+ser idêntico ao usado pelo Auth Lambda, Catalog e OS.
+
+Consulte [Mercado Pago: configuração, webhook e testes](docs/mercado-pago.md)
+para configurar credenciais de teste, URL pública, assinatura e fluxo de
+demonstração.
+
 ## Build local
 
 ```powershell

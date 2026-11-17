@@ -1,0 +1,225 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: us-east-1
+  API_GATEWAY_NAME: oficina-api-gateway
+  ECR_REPOSITORY: billing-service
+  EKS_CLUSTER_NAME: oficina-cluster
+  HELM_RELEASE_NAME: billing-service
+  HELM_CHART_PATH: k8s
+  K8S_NAMESPACE: default
+
+jobs:
+  # JOB 1 — Build + Testes
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+          cache: maven
+
+      - name: Build e testes com Maven
+        run: mvn -B verify --file pom.xml
+        working-directory: ./billing
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-jar
+          path: billing/target/*.jar
+          retention-days: 1
+
+  # JOB 2 — Build e push da imagem Docker para o ECR
+  push-image-ecr:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: application-jar
+          path: billing/target
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Definir tag da imagem
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Tag da imagem: ${SHORT_SHA}"
+
+      - name: Build e push da imagem Docker
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            ./billing
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "Imagem publicada: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+  # JOB 3 — Deploy com Helm no EKS
+  deploy:
+    name: Deploy Helm → EKS
+    runs-on: ubuntu-latest
+    needs: [ push-image-ecr ]
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configurar kubectl para o EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Criar/atualizar imagePullSecret do ECR
+        env:
+          ECR_REGISTRY: ${{ needs.push-image-ecr.outputs.ecr_registry }}
+        run: |
+          ECR_PASSWORD=$(aws ecr get-login-password --region ${{ env.AWS_REGION }})
+          kubectl create secret docker-registry aws-ecr-secret \
+            --docker-server=$ECR_REGISTRY \
+            --docker-username=AWS \
+            --docker-password=$ECR_PASSWORD \
+            --namespace=${{ env.K8S_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Obter ID da conta AWS
+        id: aws-account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Obter URL base pública do API Gateway
+        id: mercado-pago-webhook
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          API_GATEWAY_NAME: ${{ env.API_GATEWAY_NAME }}
+        run: |
+          API_GATEWAY_ENDPOINT=$(aws apigatewayv2 get-apis \
+            --region "$AWS_REGION" \
+            --query "Items[?Name=='$API_GATEWAY_NAME'].ApiEndpoint | [0]" \
+            --output text)
+
+          if [[ -z "$API_GATEWAY_ENDPOINT" || "$API_GATEWAY_ENDPOINT" == "None" ]]; then
+            echo "::error::API Gateway '$API_GATEWAY_NAME' was not found in region '$AWS_REGION'. Provision k8s-infra before deploying Billing."
+            exit 1
+          fi
+          if [[ "$API_GATEWAY_ENDPOINT" != https://* ]]; then
+            echo "::error::API Gateway returned an invalid public endpoint."
+            exit 1
+          fi
+
+          API_GATEWAY_ENDPOINT="${API_GATEWAY_ENDPOINT%/}"
+          echo "base_url=$API_GATEWAY_ENDPOINT" >> "$GITHUB_OUTPUT"
+          echo "Retrieved the public API Gateway base URL for Mercado Pago webhook configuration."
+
+      - name: Helm upgrade --install
+        env:
+          ECR_REGISTRY: ${{ needs.push-image-ecr.outputs.ecr_registry }}
+          IMAGE_TAG: ${{ needs.push-image-ecr.outputs.image_tag }}
+          AWS_ACCOUNT_ID: ${{ steps.aws-account.outputs.account_id }}
+          MERCADO_PAGO_ACCESS_TOKEN: ${{ secrets.MERCADO_PAGO_ACCESS_TOKEN }}
+          MERCADO_PAGO_WEBHOOK_SECRET: ${{ secrets.MERCADO_PAGO_WEBHOOK_SECRET }}
+          MERCADO_PAGO_BASE_URL: ${{ steps.mercado-pago-webhook.outputs.base_url }}
+        run: |
+          if [ -z "$MERCADO_PAGO_ACCESS_TOKEN" ]; then
+            echo "::error::The MERCADO_PAGO_ACCESS_TOKEN GitHub Actions secret must be configured."
+            exit 1
+          fi
+          if [ -z "$MERCADO_PAGO_WEBHOOK_SECRET" ]; then
+            echo "::error::The MERCADO_PAGO_WEBHOOK_SECRET GitHub Actions secret must be configured."
+            exit 1
+          fi
+          if [[ "$MERCADO_PAGO_BASE_URL" != https://* ]]; then
+            echo "::error::Could not derive a public HTTPS MERCADO_PAGO_BASE_URL from API Gateway."
+            exit 1
+          fi
+          WEBHOOK_HOST="${MERCADO_PAGO_BASE_URL#https://}"
+          WEBHOOK_HOST="${WEBHOOK_HOST%%/*}"
+          if [[ "$WEBHOOK_HOST" == localhost* || "$WEBHOOK_HOST" == 127.0.0.1* || "$WEBHOOK_HOST" == 0.0.0.0* ]]; then
+            echo "::error::The MERCADO_PAGO_BASE_URL must not point to localhost."
+            exit 1
+          fi
+
+          MERCADO_PAGO_ACCESS_TOKEN_FILE=$(mktemp)
+          MERCADO_PAGO_WEBHOOK_SECRET_FILE=$(mktemp)
+          trap 'rm -f "$MERCADO_PAGO_ACCESS_TOKEN_FILE" "$MERCADO_PAGO_WEBHOOK_SECRET_FILE"' EXIT
+          printf '%s' "$MERCADO_PAGO_ACCESS_TOKEN" > "$MERCADO_PAGO_ACCESS_TOKEN_FILE"
+          printf '%s' "$MERCADO_PAGO_WEBHOOK_SECRET" > "$MERCADO_PAGO_WEBHOOK_SECRET_FILE"
+
+          helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./${{ env.HELM_CHART_PATH }} \
+            --namespace ${{ env.K8S_NAMESPACE }} \
+            --create-namespace \
+            -f ./${{ env.HELM_CHART_PATH }}/values-prod.yaml \
+            --set image.repository=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }} \
+            --set image.tag=$IMAGE_TAG \
+            --set secret.JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --set secret.SECURITY_USER_NAME="${{ secrets.SECURITY_USER_NAME }}" \
+            --set secret.SECURITY_USER_PASSWORD="${{ secrets.SECURITY_USER_PASSWORD }}" \
+            --set secret.NEW_RELIC_LICENSE_KEY="${{ secrets.NEW_RELIC_LICENSE_KEY }}" \
+            --set-file secret.MERCADO_PAGO_ACCESS_TOKEN="$MERCADO_PAGO_ACCESS_TOKEN_FILE" \
+            --set-file secret.MERCADO_PAGO_WEBHOOK_SECRET="$MERCADO_PAGO_WEBHOOK_SECRET_FILE" \
+            --set-string configmap.MERCADO_PAGO_BASE_URL="$MERCADO_PAGO_BASE_URL" \
+            --set-string configmap.AWS_SNS_TOPIC_COBRANCA_PIX="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-cobranca-pix-gerada" \
+            --set-string configmap.AWS_SNS_TOPIC_PAGAMENTO_APROVADO="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-pagamento-aprovado" \
+            --set-string configmap.AWS_SNS_TOPIC_PAGAMENTO_RECUSADO="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-pagamento-recusado" \
+            --set-string configmap.AWS_SNS_TOPIC_SAGA_INITIATED="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-saga-initiated" \
+            --set-string configmap.AWS_SNS_TOPIC_SAGA_EXPIRED="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:oficina-saga-expired" \
+            --rollback-on-failure \
+            --timeout 10m \
+            --wait
+
+      - name: Verificar rollout do deployment
+        run: |
+          kubectl rollout status deployment/billing-service \
+            --namespace=${{ env.K8S_NAMESPACE }} \
+            --timeout=5m

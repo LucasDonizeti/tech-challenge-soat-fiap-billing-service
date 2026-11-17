@@ -1,0 +1,100 @@
+server:
+  port: ${SPRING_PORT:8082} # Produção: 8080
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: ${SPRING_APPLICATION_NAME:billing-service}
+    version: ${SPRING_APPLICATION_VERSION:0.0.1-SNAPSHOT}
+
+  cloud:
+    aws:
+      region:
+        # Produção: use o IAM Role da aplicação, sem credenciais estáticas no YAML.
+        static: ${AWS_REGION:us-east-1}
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+  security:
+    jwt:
+      secret: ${JWT_SECRET:mySuperSecretKeyForJWTTokenGenerationThatIsSecureEnough}
+      expiration: ${JWT_EXPIRATION:86400}
+
+aws:
+  dynamodb:
+    endpoint: ${DYNAMODB_ENDPOINT:}
+  sns:
+    topics:
+      cobranca-pix-gerada: ${AWS_SNS_TOPIC_COBRANCA_PIX:}
+      # Produção: defina AWS_SNS_TOPIC_COBRANCA_PIX com o ARN do tópico.
+      pagamento-aprovado: ${AWS_SNS_TOPIC_PAGAMENTO_APROVADO:}
+      # Produção: defina AWS_SNS_TOPIC_PAGAMENTO_APROVADO com o ARN do tópico.
+      pagamento-recusado: ${AWS_SNS_TOPIC_PAGAMENTO_RECUSADO:}
+      # Produção: defina AWS_SNS_TOPIC_PAGAMENTO_RECUSADO com o ARN do tópico.
+      saga-initiated: ${AWS_SNS_TOPIC_SAGA_INITIATED:}
+      saga-expired: ${AWS_SNS_TOPIC_SAGA_EXPIRED:}
+  sqs:
+    queues:
+      orcamento-pronto: ${AWS_SQS_QUEUE_ORCAMENTO_PRONTO:}
+
+messaging:
+  type: ${MESSAGING_TYPE:rabbit}
+  rabbit:
+    exchange: ${RABBITMQ_EVENTS_EXCHANGE:billing.events}
+    queues:
+      orcamento-pronto: ${RABBITMQ_QUEUE_ORCAMENTO_PRONTO:billing.orcamento-pronto}
+      saga-initiated: ${RABBITMQ_QUEUE_SAGA_INITIATED:os.saga.payment.initiated}
+      saga-expired: ${RABBITMQ_QUEUE_SAGA_EXPIRED:os.saga.payment.expired}
+    routing-keys:
+      orcamento-pronto: ${RABBITMQ_KEY_ORCAMENTO_PRONTO:orcamento.pronto}
+      cobranca-pix-gerada: ${RABBITMQ_KEY_COBRANCA_PIX_GERADA:cobranca.pix.gerada}
+      pagamento-aprovado: ${RABBITMQ_KEY_PAGAMENTO_APROVADO:pagamento.aprovado}
+      pagamento-recusado: ${RABBITMQ_KEY_PAGAMENTO_RECUSADO:pagamento.recusado}
+      saga-initiated: ${RABBITMQ_KEY_SAGA_INITIATED:saga.payment.initiated}
+      saga-expired: ${RABBITMQ_KEY_SAGA_EXPIRED:saga.payment.expired}
+
+mercadopago:
+  access-token: ${MERCADO_PAGO_ACCESS_TOKEN:}
+  notification-url: "${MERCADO_PAGO_BASE_URL:http://localhost:8082}${SERVER_SERVLET_CONTEXT_PATH:}/api/v1/billings/webhooks/mercadopago"
+  webhook-secret: ${MERCADO_PAGO_WEBHOOK_SECRET:}
+  skip-signature-validation: ${MERCADO_PAGO_SKIP_SIGNATURE_VALIDATION:false}
+
+os-service:
+  base-url: ${OS_SERVICE_BASE_URL:http://localhost:8081}
+
+billing:
+  pix:
+    expires-in-minutes: ${BILLING_PIX_EXPIRES_IN_MINUTES:30}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+  show-actuator: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    rabbit:
+      enabled: ${RABBIT_HEALTH_CHECK_ENABLED:true}
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    com.techchallenge.billing: ${LOG_LEVEL:INFO}
+    org.springframework.security: ${SECURITY_LOG_LEVEL:WARN}
+    io.jsonwebtoken: ${JWT_LOG_LEVEL:WARN}
+    io.awspring.cloud: ${AWS_LOG_LEVEL:INFO}
+
+newrelic:
+  config:
+    agent_enabled: ${ENABLE_NEWRELIC:false}

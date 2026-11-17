@@ -1,0 +1,115 @@
+# ==============================================================================
+# values-prod.yaml — sobrescreve values.yaml para ambiente de produção (AWS EKS)
+# Uso na pipeline:
+#   helm upgrade --install billing-service ./k8s \
+#     -f k8s/values-prod.yaml \
+#     --set image.tag=$IMAGE_TAG \
+#     --set secret.JWT_SECRET=$JWT_SECRET \
+#     --set secret.SECURITY_USER_NAME=$SECURITY_USER_NAME \
+#     --set secret.SECURITY_USER_PASSWORD=$SECURITY_USER_PASSWORD
+# ==============================================================================
+
+replicaCount: 2
+
+image:
+  repository: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/billing-service
+  pullPolicy: Always
+  tag: "latest"
+
+service:
+  # API Gateway -> VPC Link -> NLB -> NodePort do billing-service
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 8080
+      nodePort: 30083
+
+imagePullSecrets:
+  - name: aws-ecr-secret
+
+nameOverride: ""
+fullnameOverride: "billing-service"
+
+serviceAccount:
+  create: true
+  automount: true
+  # Configure the EKS IAM role with permission to publish to the SNS topics.
+  annotations: {}
+  name: ""
+
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+  hosts: []
+  tls: []
+
+httpRoute:
+  enabled: false
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "1"
+
+livenessProbe:
+  httpGet:
+    path: /v1/billing-service/actuator/health/liveness
+    port: 8080
+  initialDelaySeconds: 90
+  periodSeconds: 15
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /v1/billing-service/actuator/health/readiness
+    port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+configmap:
+  SPRING_PORT: "8080"
+  SERVER_SERVLET_CONTEXT_PATH: "/v1/billing-service"
+  SPRING_APPLICATION_NAME: "billing-service-prod"
+  SPRING_APPLICATION_VERSION: "0.0.1-SNAPSHOT"
+  MESSAGING_TYPE: "aws"
+  AWS_REGION: "us-east-1"
+  RABBIT_HEALTH_CHECK_ENABLED: "false"
+  SPRING_CLOUD_AWS_SQS_QUEUE_NOT_FOUND_STRATEGY: "FAIL"
+  DYNAMODB_ENDPOINT: ""
+  AWS_SQS_QUEUE_ORCAMENTO_PRONTO: "oficina-orcamento-pronto"
+  OS_SERVICE_BASE_URL: "http://os-service.default.svc.cluster.local:80/v1/os-service"
+  MERCADO_PAGO_BASE_URL: ""
+  MERCADO_PAGO_SKIP_SIGNATURE_VALIDATION: "true"
+  LOG_LEVEL: "INFO"
+  SECURITY_LOG_LEVEL: "WARN"
+  JWT_LOG_LEVEL: "ERROR"
+  JWT_EXPIRATION: "3600"
+  SECURITY_USER_ROLES: "ADMIN"
+  NEW_RELIC_APP_NAME: "billing-service-prod"
+  NEW_RELIC_LOGS_IN_CONTEXT_ENABLED: "true"
+  NEW_RELIC_DISTRIBUTED_TRACING_ENABLED: "true"
+
+secret:
+  JWT_SECRET: ""
+  SECURITY_USER_NAME: ""
+  SECURITY_USER_PASSWORD: ""
+  NEW_RELIC_LICENSE_KEY: ""
+  MERCADO_PAGO_ACCESS_TOKEN: ""
+  MERCADO_PAGO_WEBHOOK_SECRET: ""
+
+# SNS topic ARNs and Mercado Pago API base URL are populated by the deploy workflow.
+extraEnv: []
